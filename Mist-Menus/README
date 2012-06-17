@@ -1,0 +1,26 @@
+Mist::Menus
+=========================
+
+INSTALLATION
+
+You should first install: 
+
+  1. perl-SDL http://search.cpan.org/~jtpalmer/SDL-2.535/ or higher
+  2. Color-Scheme http://search.cpan.org/~ian/Color-Scheme-1.02/lib/Color/Scheme.pm
+  3. A true type font such as DejaVuSans.ttf
+  4. Modify line 60(ish) of MistMenus to point to your font
+      font   => '/path/fontname.ttf',
+
+To install this module type the following:
+
+   perl Makefile.PL
+   make
+   make test
+   make install
+
+COPYRIGHT AND LICENCE
+
+See `COPYING' file for full license text.
+
+Copyright (C) 2012 Albert Graham
+

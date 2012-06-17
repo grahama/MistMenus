@@ -1,0 +1,5 @@
+
+20120508 v1.0
+
+- t/*.t temporary removed all tests, see t/test.t for details
+

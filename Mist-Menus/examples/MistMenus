@@ -1,0 +1,756 @@
+#!/usr/bin/perl
+
+use strict;
+use diagnostics;					# for debugging
+use warnings FATAL => qw(numeric uninitialized);	# dies if these occure
+
+use Time::HiRes qw( sleep );
+
+use SDL;
+use SDL::Video;
+use SDL::Surface;
+use SDL::Event;
+use SDL::Events;
+use SDL::Mouse;
+
+use Mist::Menus;
+
+# ==============================================================
+sub DoDebug {
+# stop that annoying message
+$DB::single=1;
+$DB::single=1;
+}
+
+# ==============================================================
+my $ColourSchemeDefaults={
+      scheme=>'monochromatic', 
+      from_hue=>220,
+      distance=>0,
+      variation=>'hard',
+      web_safe=>1,
+      add_complement=>0,
+      fine_tune=>0,
+};
+# ==============================================================
+my $MenuControl={
+                   menu_h			=> 540,			# Max height allowed, cannot be 0
+#                   menu_w			=> 480,			# 0=auto calculate width, else limit to menu_w
+
+# NOTE: For referernce:
+#
+#       SDL_MENUS_TTF_STYLE_NORMAL 		=> TTF_STYLE_NORMAL,
+#       SDL_MENUS_TTF_STYLE_BOLD		=> TTF_STYLE_BOLD,
+#       SDL_MENUS_TTF_STYLE_ITALIC		=> TTF_STYLE_ITALIC,
+#       SDL_MENUS_TTF_STYLE_UNDERLINE		=> TTF_STYLE_UNDERLINE,
+#       SDL_MENUS_TTF_STYLE_STRIKETHROUGH	=> TTF_STYLE_STRIKETHROUGH,
+# 
+#       SDL_MENUS_TTF_HINTING_NORMAL		=> TTF_HINTING_NORMAL,
+#       SDL_MENUS_TTF_HINTING_LIGHT		=> TTF_HINTING_LIGHT,
+#       SDL_MENUS_TTF_HINTING_MONO		=> TTF_HINTING_MONO,
+#       SDL_MENUS_TTF_HINTING_NONE		=> TTF_HINTING_NONE,
+
+
+# 		   font_style		   	=> SDL_MENUS_TTF_STYLE_NORMAL,	# font should include this style!
+# 		   font_hinting		   	=> SDL_MENUS_TTF_HINTING_LIGHT,	# or undef
+
+# NOTE: Font must exist!
+
+                   font         		=> '/usr/share/fonts/dejavu/DejaVuSans.ttf',	# Your preferred font
+
+#                  font				=> '/usr/share/fonts/dejavu/DejaVuLGCSansMono.ttf',	# nornal font
+# 		   font				=> '/usr/share/fonts/vlgothic/VL-Gothic-Regular.ttf',
+#		   font				=> '/usr/share/fonts/freecol/ShadowedBlack.ttf',
+
+		   color_scheme			=> undef,		# or ref to $ColourSchemeDefaults (see Menus.pm)
+		   color_scheme_settings	=> undef,		# or ref to $ColourSchemeSettings (see Menus.pm)
+
+		   menu_align			=> SDL_MENUS_ALIGN_CENTER,	# set to SDL_MENUS_ALIGN_NONE to disable alignment
+
+# NOTE: You can override the entire color_scheme system here, but you have to fill in the following
+#
+#  		   color_scheme_disable		=> 1,			# if set to 1, the following 
+#  		   font_color   	   	=> [255, 0, 255],	# colors must also be defined
+#  		   select_color 	   	=> [255, 255, 255],
+#  		   select_background_color	=> [70,70,70],
+#  		   border_color			=> [10, 50, 10],
+#  		   border_padding_color		=> [20, 20, 20],
+#  		   separator_color		=> [120, 80, 120],
+#  		   background_color 		=> [30,30,30],
+#  		   help_color   	   	=> [255, 0, 255],	# colors must also be defined
+#  		   help_background_color   	=> [30,30,30],		# colors must also be defined
+#  		   title_color   	   	=> [255, 0, 255],	# colors must also be defined
+#  		   title_background_color   	=> [30,30,30],		# colors must also be defined
+#		   hotkeys_color		=> [130,130,130],	# colors must also be defined
+
+		   help_align			=> SDL_MENUS_ALIGN_CENTER,	# SDL_MENUS_ALIGN_LEFT is default
+		   help_valign 			=> SDL_MENUS_ALIGN_TOP,		# SDL_MENUS_ALIGN_TOP is default
+
+		   help_lines_format		=> 0,			# 0=display as is, 1=reformat
+		   help_lines			=> 3,			# number of lines for help
+		   help_show			=> 1,			# help on/off
+#		   help_enable			=> 1,			# (default=1) 0=disable help 
+
+		   selector_bar			=> SDL_MENUS_SELECTOR_BAR_FULL,	# 0=no background_color, 1=full background_color, 2=partial background_color
+
+#		   title_enable			=> 1,			# (default=1) 0=disable help 
+		   title_lines 			=> 3,
+		   title_height 		=> 2,				# must be <= title_lines
+
+		   title_align			=> SDL_MENUS_ALIGN_CENTER,	#
+		   title_valign			=> SDL_MENUS_ALIGN_MIDDLE ,	#
+
+		   title_font_style		=> SDL_MENUS_TTF_STYLE_BOLD+SDL_MENUS_TTF_STYLE_ITALIC,
+		   title_font_hinting		=> SDL_MENUS_TTF_HINTING_LIGHT,
+
+		   border			=> .3,			# 1=1 char height, Entire border size
+		   border_padding 		=> .4,			# inner border - cannot be > border
+
+		   center_spacing		=> 1,
+		   center_spacing_enable	=> 1,
+
+		   horizontal_spacing           => 1,
+		   vertical_spacing           	=> 1,
+
+		   separator			=> " = ",		# can be empty
+#		   separator_enable		=> 1,			# 1=default
+
+#		   show_hotkeys			=> 1,			# 1=default
+
+		   outline			=> 0,			# turn on outline debugging
+};
+# ==============================================================
+# Initialuse the HUE settings * 10 degrees or whatever level
+# you required, smallest is 1 degree, totaling 360 items
+#
+# set fine-tune to the stepsize -1, you can then access all 360
+# hues easily using these two dials
+# ==============================================================
+my $stepsize    =  10;
+my $maxsteps = 360 / $stepsize;
+my @hue=();
+for my $x (0 .. $maxsteps -1) {
+  push (@hue,($x * $stepsize));
+}
+my @finehue=(0 .. $stepsize-1);
+
+my @distance=qw(0 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95 1);
+# ==============================================================
+our $MenuColours=[
+		    'Colour Scheme',
+
+		    'Scheme' => {
+				    help=>'Choose which colour scheme to use',
+				    hotkeys=>[SDLK_s],
+				    toggle=>1,
+				    state=>[qw(monochromatic contrast triade tetrade analogic)],
+				    param1=>'scheme',
+				    trigger=>\&DO_Scheme_Set,
+				    },
+		    'Hue' => {
+				    help=>"Choose hue in steps of $stepsize degrees",
+				    hotkeys=>[SDLK_h],
+				    toggle=>1,
+				    state=>[@hue],
+				    param1=>'from_hue',
+				    trigger=>\&DO_Scheme_Set,
+				    },
+
+                    'Fine Tune Hue'  => {
+				    toggle=>1,
+				    hotkeys=>[SDLK_f],
+				    help=>'Fine-tune your hue setting',
+				    state=>[@finehue],
+				    param1=>'fine_tune',
+				    trigger=>\&DO_Scheme_Set,
+				    },
+
+                    'Variation' => {
+				    hotkeys=>[SDLK_v],
+				    toggle=>1,
+				    help=>"Choose a colour variation",
+				    state=>[qw(default pastel soft light hard pale)],
+				    param1=>'variation',
+				    trigger=>\&DO_Scheme_Set,
+				    },
+                    'Add Complement'  => {
+				    hotkeys=>[SDLK_c],
+				    toggle=>1,
+				    help=>"Add complement colour (analogic only)",
+				    state=>[qw(no yes)],
+				    param1=>'add_complement',
+				    trigger=>\&DO_Scheme_Set,
+				    },
+                    'Distance'  => {
+				    hotkeys=>[SDLK_d],
+				    toggle=>1,
+				    help=>'Choose the distance/angle',
+				    state=>[@distance],
+				    param1=>'distance',
+				    trigger=>\&DO_Scheme_Set,
+				    },
+                    'Web Safe'  => {
+				    hotkeys=>[SDLK_w],
+				    toggle=>1,
+				    help=>'Adjust to safe HTML based colours',
+				    state=>[qw(no yes)],
+				    param1=>'web_safe',
+				    trigger=>\&DO_Scheme_Set,
+				    },
+                    'Back to Main Menu'     => {
+				    hotkeys=>[SDLK_m,SDLK_ESCAPE],
+				    param1=>'Main Menu',
+				    trigger=>\&UseMenu,
+				  },
+
+];
+# ==============================================================
+sub DO_Scheme_Set {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  my $param=$item->{param1};
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+
+    my $found=0;
+    my $default=$self->color_scheme->{$param};			# get default value for this param
+    $item->{current}=0;						# should not need this, but just in case
+
+    # ### bool converion
+    if ($param eq 'add_complement' || $param eq 'web_safe') {
+      $found++;
+      $item->{current}=$default;
+    } else {
+     for (@{$item->{state}}) {
+      if ($default eq $_) {
+	$found++;last;
+      }
+      $item->{current}++;
+     }
+   }
+
+    $item->{current}=0 unless ($found);
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {		# if return pressed, we do toggle right
+    $selected=$self->toggle_right;
+  }
+
+  $self->scheme_set_item($param,$selected);
+
+}	
+# ==============================================================
+my $myhelp="Often there will be  another  error  message associated with the syntax error giving more information. The error message itself often tells you where it was in the line when it decided to give up.
+This is another line.";
+
+my $MainMenu=[
+		    'Main Menu',
+
+                    'Change Menu Colors'  => {
+				    hotkeys=>[SDLK_c,SDLK_m],	# The hotkey, you can have as man as you like
+				    toggle=>0,
+				    active_text=>'',
+				    help=>\$myhelp,
+				    param1=>,'Colour Scheme',
+				    trigger=>\&UseMenu,
+				    },
+
+		      'Toggle Outline' => {
+				    hotkeys=>[SDLK_o],
+				    help=>'Highlights hot points on the menu',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>['Off','On'],
+				    my_color=>[0,0,0],				# will get setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0]],	# my private colors
+				    trigger=>\&DO_Toggle_Outline,
+				    },
+
+		      'Toggle Separator' => {
+				    hotkeys=>[SDLK_s],
+				    help=>'Turns the separator string on/off',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>['Off','On'],
+				    my_color=>[0,0,0],				# will get setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0]],	# my private colors
+				    trigger=>\&DO_Toggle_Separator,
+				    },
+
+		      'Toggle Center Spacer' => {
+				    hotkeys=>[SDLK_p],
+				    help=>'Turns the center spacer on/off',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>['Off','On'],
+				    my_color=>[0,0,0],				# will get setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0]],	# my private colors
+				    trigger=>\&DO_Toggle_Center_Spacer,
+				    },
+
+		      'Toggle Selector Bar' => {
+				    hotkeys=>[SDLK_b],
+				    help=>'Change the selection bar type',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>['None','Full','Partial'],
+				    my_color=>[0,0,0],					# will get setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0],[0,0,255]],	# my private colors
+				    align=>SDL_MENUS_ALIGN_CENTER,
+				    trigger=>\&Toggle_Selector_Bar,
+				    },
+
+		      'Toggle Menu Alignment' => {
+				    hotkeys=>[SDLK_m],
+				    help=>'Align menu items left, center or right',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>[qw(Left Center Right)],
+				    trigger=>\&DO_Toggle_Menu_Alignment,
+				    },
+
+		      'Toggle Help Align' => {
+				    hotkeys=>[SDLK_a],
+				    help=>\$myhelp,
+#				    help=>'Align help line left, center or right',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>[qw(Left Center Right)],
+				    trigger=>\&DO_Toggle_Help_Align,
+				    },
+
+		      'Toggle Help Valign' => {
+#				    help=>'Vertical align top, middle or bottom',
+				    hotkeys=>[SDLK_v],
+				    help=>\$myhelp,
+				    toggle=>1,
+				    active_text=>'',
+				    state=>[qw(Top Middle Bottom)],
+				    trigger=>\&DO_Toggle_Help_Valign,
+				    },
+
+		      'Toggle Help Text Format' => {
+				    hotkeys=>[SDLK_f],
+
+				    help=>\$myhelp,
+#				    help=>'Reformat all help text',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>['Normal', 'Re-format Text'],
+				    trigger=>\&DO_Toggle_Help_Format,
+				    my_color=>[0,0,0],				# will get setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0]],	# my private colors
+				    },
+
+		      'Show Help' => {
+				    help=>'Turn Help On/Off',
+				    hotkeys=>[SDLK_h],
+				    toggle=>1,
+				    active_text=>'',
+				    state=>['No','Yes'],
+				    my_color=>[0,0,0],				# will get setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0]],	# my private colors
+				    trigger=>\&DO_Show_Help,
+				    },
+
+		      'Show Hotkeys' => {
+				    hotkeys=>[SDLK_k],
+				    help=>'Show Hotkeys On/Off',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>['No','Yes'],
+				    my_color=>[0,0,0],				# will get setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0]],	# my private colors
+				    trigger=>\&DO_Show_Hotkeys,
+				    },
+
+		      'Toggle Title Align' => {
+				    hotkeys=>[SDLK_t],
+				    help=>\$myhelp,
+#				    help=>'Align help line left, center or right',
+				    toggle=>1,
+				    active_text=>'',
+				    state=>[qw(Left Center Right)],
+				    trigger=>\&DO_Toggle_Title_Align,
+				    },
+
+		      'Toggle Title Valign' => {
+				    hotkeys=>[SDLK_g],
+#				    help=>'Vertical align top, middle or bottom',
+				    help=>\$myhelp,
+				    toggle=>1,
+				    active_text=>'',
+				    state=>[qw(Top Middle Bottom)],
+				    trigger=>\&DO_Toggle_Title_Valign,
+				    },
+
+                    'Change Screen Size' => {
+				    hotkeys=>[SDLK_z],
+				    toggle=>1,
+				    active_text=>'',
+				    help=>'Change Screen Size',
+				    current=>1,						# this is the default option
+				    state=>['640x480','600x800','1024x768'],		# i.e. 600x800
+				    my_color=>[0,0,0],					# will do setup via DO_MENU_CONFIG
+				    my_color_list=>[[255,0,0],[0,255,0],[0,0,255]],	# my private colors
+				    trigger=>\&ChangeScreenSize,
+				    },
+
+                    'Options'  => {
+				    hotkeys=>[SDLK_i],
+				    toggle=>1,
+				    active_text=>'',
+				    help=>'Goto the options sub-menu',
+				    state=>['Advanced','Basic'],
+				    param1=>,'Options Menu',
+				    trigger=>\&UseMenu,
+				    },
+
+                    'Quit'     => {
+				    hotkeys=>[SDLK_q,SDLK_ESCAPE],
+				    active_text=>'Exit',
+				    help=>'Exit program',
+				    trigger=>\&Do_Quit,
+#				    align=>SDL_MENUS_LOCKED_ALIGN_RIGHT,
+				  },
+
+];
+# ==============================================================
+sub UseMenu {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+  return if ($item->{'action'} == SDL_MENUS_DO_CONFIG);
+
+  $self->set_menu($item->{param1});	# Menu name is stored in param1
+
+}
+# ==============================================================
+sub DO_Toggle_Outline {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->outline);
+    $item->{'my_color'}=[@{$item->{my_color_list}->[$self->outline]}];
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+  $self->outline($item->current);
+
+}
+# ==============================================================
+sub DO_Show_Help {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->help_show);
+    $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+  $self->help_show($item->current);
+
+}
+# ==============================================================
+sub DO_Show_Hotkeys {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->show_hotkeys);
+    $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+  $self->show_hotkeys($item->current);
+
+}
+# ==============================================================
+sub Toggle_Selector_Bar {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->selector_bar);
+    $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];	# then this
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+  $self->selector_bar($item->current);
+ 
+}
+# ==============================================================
+sub DO_Toggle_Separator {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->separator_enable);
+    $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+  $self->separator_enable($item->current);
+
+}
+# ==============================================================
+sub DO_Toggle_Center_Spacer {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->center_spacing_enable);
+    $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+  $self->center_spacing_enable($item->current);
+}
+# ==============================================================
+sub DO_Toggle_Menu_Alignment {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+#  return if ($item->{'action'} == SDL_MENUS_DO_CONFIG);
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->menu_align);
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $self->set_menu_align($item->current);
+
+}
+# ==============================================================
+sub DO_Toggle_Help_Align {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->help_align);
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $self->set_help_align($item->current);
+
+}
+# ==============================================================
+sub DO_Toggle_Help_Valign {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->help_valign);
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $self->set_help_valign($item->current);
+
+}
+
+
+
+# ==============================================================
+sub DO_Toggle_Title_Align {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->title_align);
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $self->title_align($item->current);
+
+}
+# ==============================================================
+sub DO_Toggle_Title_Valign {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->title_valign);
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $self->title_valign($item->current);
+
+}
+
+# ==============================================================
+sub DO_Toggle_Help_Format {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+    $item->current($self->help_lines_format);
+    $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {	# if return pressed, we do toggle right
+    $selected=$self->toggle_right;			# get the new selected item
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+  $self->set_help_format($item->current);
+
+}
+# ==============================================================
+sub Do_Quit {
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+  return if ($item->{'action'} == SDL_MENUS_DO_CONFIG);
+# yes/no Menu ?
+exit;
+}
+# ==============================================================
+my $OptionsMenu=[   
+		    'Options Menu',
+
+		    'Sub menu option' => {
+				    help=>'Use <- arrow -> keys to toggle option',
+				    hotkeys=>[SDLK_s],
+				    toggle=>1,
+				    state=>['Off','On'],
+				    align=>SDL_MENUS_ALIGN_CENTER,
+				    },
+                    'Back to Main Menu'     => {
+				    toggle=>1,
+				    hotkeys=>[SDLK_m,SDLK_ESCAPE],
+				    param1=>'Main Menu',
+				    trigger=>\&UseMenu,
+				  },
+];
+# ==============================================================
+sub SetFont {
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+  return if ($item->{'action'} == SDL_MENUS_DO_CONFIG);
+
+}
+# ==============================================================
+sub ChangeScreenSize {
+
+  my ($self,$selected,$item,$menu_name,$menu_item,$event)=@_;
+
+  if ($item->{'action'} == SDL_MENUS_DO_CONFIG) {
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+    return;
+  }
+
+  if ($item->{'action'} == SDL_MENUS_DO_ENTER) {		# if enter pressed, we do the toggle
+    $selected=$self->toggle_right;
+  }
+
+  $item->{'my_color'}=[@{$item->{my_color_list}->[$item->current]}];
+
+}
+# ==============================================================
+# Create Menu Object, passing control followed by all menus
+# ==============================================================
+
+our @MyMenus=($MainMenu,$MenuColours,$OptionsMenu);
+
+# ==============================================================
+
+$ENV{'SDL_VIDEO_CENTERED'}="center";
+
+my $menu=Mist::Menus->new($MenuControl,@MyMenus);
+
+SDL::init(SDL_INIT_VIDEO);
+my $display = SDL::Video::set_video_mode( $menu->w+100, $menu->h+100, 32, SDL_SWSURFACE|SDL_VIDEORESIZE);
+
+$menu->set_menu('Main Menu',50,50);
+my $event = SDL::Event->new;                                          # create a new event
+
+SDL::Events::pump_events();
+SDL::Events::enable_key_repeat( 100,100,);		# delay,interval
+
+$menu->render( $display );
+SDL::Video::update_rect( $display, 0,0,0,0);
+
+#my $c=0;
+while (1) {
+
+   if (SDL::Events::poll_event( $event)) {
+#   while(  SDL::Events::poll_event( $event) ) {
+	my $type = $event->type();                                    # get event type
+	if ($type == SDL_QUIT) {
+	  exit;
+	} else {
+
+	my $update=$menu->event_hook( $event );
+
+	# NOTE: only update screen if something changed
+	#       this is why we needed to do an initial render and update_rect
+	#       so we don't render the same thing constantly.
+
+	  if ($update) {
+	    $menu->render( $display );
+	    SDL::Video::update_rect( $display, 0,0,0,0);
+
+	    # use this to confirm, $update is correct
+# 	    $c++;
+# 	    print "$c: Updated Screen\n";
+
+	  } else {
+	    # pass $event to something else
+	  }
+	}
+    } else {
+      sleep .05;
+    }
+
+}
+

@@ -1,0 +1,13 @@
+COPYING
+MANIFEST
+Makefile.PL
+lib/Mist/Menus.pm
+README
+LICENSE
+examples/MistMenus
+pictures/MistMenus1.png
+pictures/MistMenus2.png
+pictures/README
+t/test.t
+ChangeLog
+META.yml                                 Module meta-data (added by MakeMaker)
