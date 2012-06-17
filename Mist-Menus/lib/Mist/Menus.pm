@@ -812,6 +812,7 @@ sub set_menu {
 
    # get the Hot keys for this menu
     my $maxitems=($#{$self->_items}-1)/2;
+     $self->{_hotkeys}={};			# clear any hotkeys from the previous menu
      for ( 0 .. $maxitems ) {
       my $count=$_;
       my $ref=$self->_items->[$count * 2 + SDL_MENUS_ITEMS];
